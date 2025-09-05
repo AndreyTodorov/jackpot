@@ -31,7 +31,7 @@ jobs:
 
       # 4. Runs the scraper script
       - name: Run the scraper
-        run: node scraper.js
+        run: node jackpot.js
         env:
           # These secrets are securely passed to the script as environment variables
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
