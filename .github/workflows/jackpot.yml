@@ -8,7 +8,7 @@ on:
   # Runs on a schedule (this example runs every day at 7:00 AM UTC)
   # You can customize the cron schedule as needed. Use crontab.guru to help.
   schedule:
-    - cron: "0 12 * * 4,7" # Every Thursday and Sunday at 13:00 UTC (15:00 in Bulgaria)
+    - cron: "0 12 * * 0,4" # Every Thursday and Sunday at 13:00 UTC (15:00 in Bulgaria)
 
 jobs:
   scrape:
