@@ -1,14 +1,16 @@
-# .github/workflows/run-scraper.yml
+# .github/workflows/jackpot.yml
 
 name: Toto Jackpot Scraper
 
 on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-  # Runs on a schedule (this example runs every day at 7:00 AM UTC)
-  # You can customize the cron schedule as needed. Use crontab.guru to help.
+  # Runs on a schedule - every Thursday and Sunday
+  # Cron format: minute hour day-of-month month day-of-week
+  # Bulgaria is UTC+2 (winter) or UTC+3 (summer DST)
+  # 12:00 UTC = 14:00/15:00 Bulgaria time (depending on DST)
   schedule:
-    - cron: "0 9 * * 0,4" # Every Thursday and Sunday at 13:00 UTC (15:00 in Bulgaria)
+    - cron: "0 12 * * 0,4" # Every Sunday (0) and Thursday (4) at 12:00 UTC
 
 jobs:
   scrape:
