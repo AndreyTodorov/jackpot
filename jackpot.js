@@ -135,8 +135,7 @@ async function scrapeAndNotify() {
   }
 
   console.log("🚀 Starting Toto jackpot scraper...");
-  console.log(`📍 Target URL: ${url}`);
-
+  
   try {
     // 1. Fetch the HTML of the page with timeout and retry
     console.log("📡 Fetching page content...");
