@@ -90,6 +90,31 @@ function cleanJackpotValue(rawValue) {
 }
 
 /**
+ * Finds the jackpot element using resilient selectors.
+ * We prioritize the Toto 2 - 6/49 game block and then fall back
+ * to generic jackpot selectors if needed.
+ * @param {import('cheerio').CheerioAPI} $ - Loaded cheerio document
+ * @returns {import('cheerio').Cheerio<any>} - jackpot value element
+ */
+function findJackpotElement($) {
+  const selectors = [
+    ".side.s6x49 .jackpot .jackpot-value",
+    "div.jackpot-value",
+    ".jackpot .jackpot-value",
+    '[class*="jackpot-value"]',
+  ];
+
+  for (const selector of selectors) {
+    const element = $(selector).first();
+    if (element.length > 0) {
+      return element;
+    }
+  }
+
+  return $([]);
+}
+
+/**
  * Sends a message to Telegram using the Bot API
  * @param {string} message - The message to send
  */
@@ -154,11 +179,13 @@ async function scrapeAndNotify() {
     const $ = cheerio.load(data);
 
     // 3. Select the element and validate it exists
-    const element = $("div.jackpot-value").first();
+    const element = findJackpotElement($);
     if (element.length === 0) {
+      const titleText = $("title").text().trim();
       throw new Error(
-        'Could not find element with selector "div.jackpot-value". ' +
-          "The website structure may have changed."
+        'Could not find a jackpot element (tried selectors for ".side.s6x49 .jackpot .jackpot-value", "div.jackpot-value", and fallbacks). ' +
+          "The website structure may have changed or an anti-bot/interstitial page was returned." +
+          (titleText ? ` Page title: "${titleText}".` : "")
       );
     }
 

@@ -10,6 +10,50 @@ jest.mock("dotenv", () => ({
 }));
 
 const axios = require("axios");
+const cheerio = require("cheerio");
+
+describe("Jackpot Element Selection", () => {
+  function findJackpotElement($) {
+    const selectors = [
+      ".side.s6x49 .jackpot .jackpot-value",
+      "div.jackpot-value",
+      ".jackpot .jackpot-value",
+      '[class*="jackpot-value"]',
+    ];
+
+    for (const selector of selectors) {
+      const element = $(selector).first();
+      if (element.length > 0) {
+        return element;
+      }
+    }
+
+    return $([]);
+  }
+
+  test("prefers Toto 2 6/49 jackpot block", () => {
+    const html = `
+      <div class="jackpot-value">secondary</div>
+      <div class="side s6x49">
+        <div class="jackpot"><div class="jackpot-value">primary</div></div>
+      </div>
+    `;
+
+    const $ = cheerio.load(html);
+    expect(findJackpotElement($).text()).toBe("primary");
+  });
+
+  test("falls back to generic jackpot selector", () => {
+    const html = `<div class="jackpot"><div class="jackpot-value">value</div></div>`;
+    const $ = cheerio.load(html);
+    expect(findJackpotElement($).text()).toBe("value");
+  });
+
+  test("returns empty set when no jackpot is present", () => {
+    const $ = cheerio.load("<div>no jackpot here</div>");
+    expect(findJackpotElement($).length).toBe(0);
+  });
+});
 
 describe("Jackpot Value Cleaning", () => {
   // We'll test the cleaning logic by creating a standalone function
