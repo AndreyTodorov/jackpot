@@ -1,209 +1,113 @@
 require("dotenv").config();
-
-const axios = require("axios");
-const cheerio = require("cheerio");
+const puppeteer = require("puppeteer"); // Replaced axios/cheerio
 
 // --- CONFIGURATION ---
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
 const url = "https://toto.bg/";
 
-// Configure axios with timeout and retry logic
-const REQUEST_TIMEOUT = 30000; // 30 seconds
+const REQUEST_TIMEOUT = 30000;
 const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000; // 2 seconds base delay
+const RETRY_DELAY = 2000;
 
 // --- HELPER FUNCTIONS ---
 
-/**
- * Makes an HTTP request with retry logic for handling transient failures
- * @param {Function} requestFn - Async function that performs the request
- * @param {number} retries - Number of retry attempts remaining
- * @returns {Promise} - The response from the request
- */
 async function retryRequest(requestFn, retries = MAX_RETRIES) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await requestFn();
     } catch (error) {
       const isLastAttempt = attempt === retries;
+      // Puppeteer specific retryable errors (timeouts or navigation issues)
       const isRetriableError =
-        error.code === "ECONNABORTED" ||
-        error.code === "ETIMEDOUT" ||
-        error.code === "ENOTFOUND" ||
-        error.code === "ECONNREFUSED" ||
-        (error.response && error.response.status >= 500);
+        error.name === "TimeoutError" ||
+        error.message.includes("navigating") ||
+        error.code === "ECONNREFUSED";
 
-      if (isLastAttempt || !isRetriableError) {
-        throw error;
-      }
+      if (isLastAttempt || !isRetriableError) throw error;
 
       const delay = RETRY_DELAY * Math.pow(2, attempt);
       console.log(
-        `⚠️  Request failed (attempt ${attempt + 1}/${retries + 1}): ${
-          error.message
-        }`
+        `⚠️ Attempt ${attempt + 1} failed: ${error.message}. Retrying in ${delay / 1000}s...`,
       );
-      console.log(`   Retrying in ${delay / 1000} seconds...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }
 
-/**
- * Validates and cleans the scraped jackpot value
- * @param {string} rawValue - Raw text scraped from the website
- * @returns {string} - Cleaned and validated jackpot value
- */
 function cleanJackpotValue(rawValue) {
-  if (!rawValue) {
-    throw new Error("Raw jackpot value is empty");
-  }
-
-  // Remove the Bulgarian word "лева" (BGN currency) and everything after it
+  if (!rawValue) throw new Error("Raw jackpot value is empty");
   let cleaned = rawValue.split("лева")[0];
-
-  // Normalize whitespace
   cleaned = cleaned.replace(/\s+/g, " ").trim();
-
-  // Add the currency suffix
   cleaned = cleaned + " лв.";
-
-  // Validate that the result contains digits
-  if (!/\d/.test(cleaned)) {
-    throw new Error(`Cleaned value contains no digits: "${cleaned}"`);
-  }
-
-  // Optional: Validate reasonable range (jackpot should be substantial)
-  const numericValue = parseFloat(cleaned.replace(/[^\d.]/g, ""));
-  if (numericValue < 1000) {
-    console.warn(
-      `⚠️  Warning: Unusually low jackpot value: ${numericValue} BGN`
-    );
-  } else if (numericValue > 100000000) {
-    console.warn(
-      `⚠️  Warning: Unusually high jackpot value: ${numericValue} BGN`
-    );
-  }
-
+  if (!/\d/.test(cleaned)) throw new Error(`Invalid value: "${cleaned}"`);
   return cleaned;
 }
 
-/**
- * Sends a message to Telegram using the Bot API
- * @param {string} message - The message to send
- */
 async function sendTelegramMessage(message) {
+  // We keep axios for the Telegram POST since it's a simple API call
+  const axios = require("axios");
   await retryRequest(async () => {
-    const response = await axios.post(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        chat_id: chatId,
-        text: message,
-        parse_mode: "Markdown",
-      },
-      {
-        timeout: REQUEST_TIMEOUT,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    if (!response.data.ok) {
-      throw new Error(
-        `Telegram API returned error: ${JSON.stringify(response.data)}`
-      );
-    }
-
-    return response;
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text: message,
+      parse_mode: "Markdown",
+    });
   });
 }
 
 // --- MAIN FUNCTION ---
 async function scrapeAndNotify() {
-  // Validate environment variables
   if (!token || !chatId) {
-    console.error("❌ Error: Telegram credentials are not defined.");
-    console.error(
-      "   Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables."
-    );
-    console.error(
-      "   For local testing, create a .env file with these variables."
-    );
+    console.error("❌ Missing Telegram credentials.");
     process.exit(1);
   }
 
-  console.log("🚀 Starting Toto jackpot scraper...");
-  
+  console.log("🚀 Starting Puppeteer Toto scraper...");
+
+  // Launch browser outside retry to manage lifecycle
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
   try {
-    // 1. Fetch the HTML of the page with timeout and retry
-    console.log("📡 Fetching page content...");
-    const { data } = await retryRequest(async () => {
-      return await axios.get(url, {
+    const page = await browser.newPage();
+
+    // Modern way to set User-Agent (avoiding deprecation)
+    await page.setUserAgent({
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    });
+
+    const jackpotValueRaw = await retryRequest(async () => {
+      console.log("📡 Navigating to toto.bg...");
+      await page.goto(url, {
+        waitUntil: "networkidle2",
         timeout: REQUEST_TIMEOUT,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
+      });
+
+      console.log("🔍 Waiting for jackpot element...");
+      await page.waitForSelector(".jackpot-value", { timeout: 15000 });
+
+      return await page.evaluate(() => {
+        const el = document.querySelector(".jackpot-value");
+        return el ? el.innerText : null;
       });
     });
-    console.log("✅ Page fetched successfully.");
 
-    // 2. Load the HTML into Cheerio
-    const $ = cheerio.load(data);
-
-    // 3. Select the element and validate it exists
-    const element = $("div.jackpot-value").first();
-    if (element.length === 0) {
-      throw new Error(
-        'Could not find element with selector "div.jackpot-value". ' +
-          "The website structure may have changed."
-      );
-    }
-
-    const jackpotValueRaw = element.text();
-    console.log(`🔍 Raw value found: "${jackpotValueRaw}"`);
-
-    // 4. Clean and validate the jackpot value
+    console.log(`✅ Found: "${jackpotValueRaw}"`);
     const jackpotValueClean = cleanJackpotValue(jackpotValueRaw);
-    console.log(`🔢 Cleaned value: "${jackpotValueClean}"`);
-
-    // 5. Format the final message
     const message = `💰 The current Toto jackpot is: *${jackpotValueClean}*`;
-    console.log(`📬 Sending message to Telegram...`);
-    console.log(`   Message: "${message}"`);
 
-    // 6. Send the message to Telegram
     await sendTelegramMessage(message);
-
-    console.log("🎉 Success! Message sent to Telegram.");
-    console.log("✨ Scraper execution completed successfully.");
+    console.log("🎉 Success! Telegram notified.");
   } catch (error) {
-    console.error("\n❌ An error occurred during execution:");
-    console.error(`   Error Type: ${error.constructor.name}`);
-    console.error(`   Message: ${error.message}`);
-
-    // Log additional context for HTTP errors
-    if (error.response) {
-      console.error(`   HTTP Status: ${error.response.status}`);
-      console.error(
-        `   Response Data: ${JSON.stringify(error.response.data, null, 2)}`
-      );
-    }
-
-    // Log error code if available (network errors)
-    if (error.code) {
-      console.error(`   Error Code: ${error.code}`);
-    }
-
-    // Log stack trace for debugging
-    console.error("\n📋 Full stack trace:");
-    console.error(error.stack);
-
+    console.error("\n❌ Scraper failed:", error.message);
     process.exit(1);
+  } finally {
+    await browser.close();
   }
 }
 
-// Run the main function
 scrapeAndNotify();
